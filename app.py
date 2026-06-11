@@ -39,9 +39,9 @@ class CrossLayer(Layer):
         cross = x0 * xlw + self.b + xl
         return cross
 
-# =========================
+
 # KONFIGURASI
-# =========================
+
 st.set_page_config(
     page_title="Prediksi Kelayakan Giling Tebu",
     page_icon="🌾",
@@ -57,10 +57,16 @@ MODEL_PATHS = {
 
 SCALER_PATH = "scaler.pkl"
 
+SAMPLE_FILES = {
+    "Data Sampel 378 Baris": "tebu 378(20) csv.csv",
+    "Data Sampel 284 Baris": "tebu 284(15) csv.csv",
+    "Data Sampel 189 Baris": "tebu 189(10) csv.csv"
+}
 
-# =========================
+
+
 # LOAD MODEL DAN SCALER
-# =========================
+
 @st.cache_resource
 def load_keras_model(model_path):
     return tf.keras.models.load_model(
@@ -76,9 +82,9 @@ def load_scaler():
     return joblib.load(SCALER_PATH)
 
 
-# =========================
+
 # FUNGSI PREDIKSI
-# =========================
+
 def prediksi_data(df_input, model, scaler):
     X = df_input[FEATURES].copy()
 
@@ -114,9 +120,9 @@ def prediksi_data(df_input, model, scaler):
 
     return hasil
 
-# =========================
+
 # STYLE CSS
-# =========================
+
 st.markdown("""
 <style>
 .block-container {
@@ -170,27 +176,50 @@ st.markdown("""
 }
 
 [data-testid="stMetric"] {
-    background-color: #1e1f29;
+    background-color: #f7f9fc;
     padding: 14px;
     border-radius: 12px;
-    border: 1px solid #333542;
+    border: 1px solid #d9dee8;
+}
+
+[data-testid="stMetric"] label,
+[data-testid="stMetric"] div {
+    color: #111827 !important;
 }
 </style>
 """, unsafe_allow_html=True)
 
 
-# =========================
+
 # HEADER
-# =========================
+
 st.markdown("""
-<div class="main-title">🌾 Prediksi Kelayakan Giling Tebu</div>
-<div class="sub-title">Sistem prediksi berbasis model MLP dan DCN</div>
+<div style='text-align:center;'>
+
+<h1 style='
+margin-bottom:8px;
+font-size:52px;
+font-weight:700;
+'>
+Prediksi Kelayakan Giling Tebu
+</h1>
+
+<p style='
+font-size:22px;
+font-weight:500;
+color:#444444;
+margin-top:0;
+'>
+Sistem prediksi berbasis model MLP dan DCN
+</p>
+
+</div>
 """, unsafe_allow_html=True)
 
 
-# =========================
+
 # PANEL KONTROL
-# =========================
+
 control_col1, control_col2 = st.columns([1, 1])
 
 with control_col1:
@@ -232,23 +261,31 @@ if metode_input == "Input Manual":
     col1, col2, col3, col4, col5 = st.columns(5)
 
     with col1:
-        jarak = st.number_input("Jarak", min_value=0.0, step=0.1, key=f"jarak_{model_choice}")
+        jarak = st.number_input("Jarak (cm)", min_value=0.0, step=0.1, key=f"jarak_{model_choice}")
 
     with col2:
-        panjang = st.number_input("Panjang", min_value=0.0, step=0.1, key=f"panjang_{model_choice}")
+        panjang = st.number_input("Panjang (cm)", min_value=0.0, step=0.1, key=f"panjang_{model_choice}")
 
     with col3:
         drata = st.number_input("Drata", min_value=0.0, step=0.1, key=f"drata_{model_choice}")
 
     with col4:
-        keliling = st.number_input("Keliling", min_value=0.0, step=0.1, key=f"keliling_{model_choice}")
+        keliling = st.number_input("Keliling (cm)", min_value=0.0, step=0.1, key=f"keliling_{model_choice}")
 
     with col5:
-        berat = st.number_input("Berat", min_value=0.0, step=0.1, key=f"berat_{model_choice}")
+        berat = st.number_input("Berat (g/cm)", min_value=0.0, step=0.1, key=f"berat_{model_choice}")
 
     tombol_prediksi = st.button("🔍 Prediksi Sampel", use_container_width=True)
 
     if tombol_prediksi:
+        
+        if jarak == 0 and panjang == 0 and drata == 0 and keliling == 0 and berat == 0:
+            st.error("Data input masih kosong. Silakan isi nilai fitur terlebih dahulu.")
+            st.stop()
+
+        if jarak <= 0 or panjang <= 0 or drata <= 0 or keliling <= 0 or berat <= 0:
+            st.error("Semua fitur harus diisi dengan nilai lebih dari 0.")
+            st.stop()
 
         df_manual = pd.DataFrame({
             "Jarak": [jarak],
@@ -313,11 +350,44 @@ else:
     with upload_col:
         st.markdown("### 📤 Upload Data Uji")
 
-        uploaded_file = st.file_uploader(
-            "Upload file CSV atau Excel",
-            type=["csv", "xlsx"],
-            key=f"upload_{model_choice}"
+        sumber_data = st.radio(
+            "Pilih Sumber Data",
+            ["Upload File Sendiri", "Gunakan Data Sampel"],
+            horizontal=True,
+            key=f"sumber_data_{model_choice}"
         )
+
+        uploaded_file = None
+        selected_sample = None
+
+        if sumber_data == "Upload File Sendiri":
+            uploaded_file = st.file_uploader(
+                "Upload file CSV atau Excel",
+                type=["csv", "xlsx"],
+                key=f"upload_{model_choice}"
+            )
+
+        else:
+            selected_sample = st.selectbox(
+                "Pilih Data Sampel",
+                list(SAMPLE_FILES.keys()),
+                key=f"sample_file_{model_choice}"
+            )
+
+            sample_path = SAMPLE_FILES[selected_sample]
+
+            if os.path.exists(sample_path):
+                with open(sample_path, "rb") as file:
+                    st.download_button(
+                        label="⬇️ Download Data Sampel",
+                        data=file,
+                        file_name=sample_path,
+                        mime="text/csv",
+                        use_container_width=True
+                    )
+            else:
+                st.error(f"File sampel tidak ditemukan: {sample_path}")
+                st.stop()
 
     with info_col:
         st.markdown("### ℹ️ Format File")
@@ -326,13 +396,17 @@ else:
             "Sistem hanya mengambil kolom: Jarak, Panjang, Drata, Keliling, dan Berat."
         )
 
-    if uploaded_file is not None:
+    if uploaded_file is not None or selected_sample is not None:
 
         try:
-            if uploaded_file.name.endswith(".csv"):
-                df_upload = pd.read_csv(uploaded_file)
+            if sumber_data == "Upload File Sendiri":
+                if uploaded_file.name.endswith(".csv"):
+                    df_upload = pd.read_csv(uploaded_file)
+                else:
+                    df_upload = pd.read_excel(uploaded_file)
             else:
-                df_upload = pd.read_excel(uploaded_file)
+                sample_path = SAMPLE_FILES[selected_sample]
+                df_upload = pd.read_csv(sample_path)
 
             missing_cols = [col for col in FEATURES if col not in df_upload.columns]
 
@@ -398,9 +472,3 @@ else:
         except Exception as e:
             st.error(f"Terjadi error saat membaca atau memproses file: {e}")
 
-# tambah inputan dari file / per batch
-# bisa dideploy by github pages atau streamlit  community cloud
-# almet
-# skenario : jumat, audiensi koordinaor 8-10, 10 observasi, setelah jumatan, set 3 uji coba model (sampai jam 4)
-# sabtu: uji coba model
-# minggu : uji coba model -> siang (pulang jam 3)
