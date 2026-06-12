@@ -87,8 +87,7 @@ def load_scaler():
 
 def prediksi_data(df_input, model, scaler):
     X = df_input[FEATURES].copy()
-
-    # Pastikan semua data numerik
+    
     X = X.apply(pd.to_numeric, errors="coerce")
 
     if X.isnull().any().any():
@@ -98,25 +97,43 @@ def prediksi_data(df_input, model, scaler):
 
     prob = model.predict(X_scaled, verbose=0).ravel()
 
-    kelas = (prob >= 0.5).astype(int)
+    kelas_prediksi = (prob >= 0.5).astype(int)
 
-    status = np.where(
-        kelas == 1,
+    status_prediksi = np.where(
+        kelas_prediksi == 1,
         "Layak Giling",
         "Tidak Layak Giling"
     )
 
     confidence = np.where(
-        kelas == 1,
+        kelas_prediksi == 1,
         prob * 100,
         (1 - prob) * 100
     )
 
     hasil = df_input.copy()
-    hasil["Probabilitas"] = prob
-    hasil["Kelas"] = kelas
-    hasil["Status"] = status
+
+    # Jika file punya kolom Kelas asli
+    if "Kelas" in hasil.columns:
+        hasil = hasil.rename(columns={"Kelas": "Kelas_Asli"})
+
+        hasil["Kelas_Asli"] = pd.to_numeric(
+            hasil["Kelas_Asli"],
+            errors="coerce"
+        )
+
+    hasil["Kelas_Prediksi"] = kelas_prediksi
+    hasil["Probabilitas"] = prob.round(4)
+    hasil["Status_Prediksi"] = status_prediksi
     hasil["Confidence (%)"] = confidence.round(2)
+
+    # Evaluasi benar/salah hanya jika ada kelas asli
+    if "Kelas_Asli" in hasil.columns:
+        hasil["Hasil_Evaluasi"] = np.where(
+            hasil["Kelas_Asli"] == hasil["Kelas_Prediksi"],
+            "Benar",
+            "Salah"
+        )
 
     return hasil
 
@@ -307,7 +324,7 @@ if metode_input == "Input Manual":
             with right_box:
                 st.markdown("### 🎯 Hasil Prediksi")
 
-                kelas = hasil.loc[0, "Kelas"]
+                kelas = hasil.loc[0, "Kelas_Prediksi"]
                 confidence = hasil.loc[0, "Confidence (%)"]
                 prob = hasil.loc[0, "Probabilitas"]
 
@@ -340,9 +357,9 @@ if metode_input == "Input Manual":
             st.error(f"Terjadi error saat prediksi: {e}")
 
 
-# =========================
+
 # UPLOAD FILE
-# =========================
+
 else:
 
     upload_col, info_col = st.columns([1, 1])
@@ -393,33 +410,52 @@ else:
         st.markdown("### ℹ️ Format File")
         st.info(
             "File boleh memiliki kolom tambahan seperti No, ID, Nomor, atau Kode. "
-            "Sistem hanya mengambil kolom: Jarak, Panjang, Drata, Keliling, dan Berat."
+            "Sistem hanya mengambil kolom: Jarak, Panjang, Drata, Keliling, dan Berat. "
+            "Jika terdapat kolom Kelas, sistem juga akan menampilkan evaluasi prediksi benar/salah."
         )
 
     if uploaded_file is not None or selected_sample is not None:
 
         try:
+            
+            # BACA DATA
+            
             if sumber_data == "Upload File Sendiri":
+
                 if uploaded_file.name.endswith(".csv"):
                     df_upload = pd.read_csv(uploaded_file)
                 else:
                     df_upload = pd.read_excel(uploaded_file)
+
             else:
                 sample_path = SAMPLE_FILES[selected_sample]
                 df_upload = pd.read_csv(sample_path)
 
-            missing_cols = [col for col in FEATURES if col not in df_upload.columns]
+            
+            # CEK KOLOM FITUR
+            
+            missing_cols = [
+                col for col in FEATURES
+                if col not in df_upload.columns
+            ]
 
             if missing_cols:
                 st.error(f"Kolom berikut tidak ditemukan di file: {missing_cols}")
                 st.info("Pastikan file memiliki kolom: Jarak, Panjang, Drata, Keliling, Berat")
                 st.stop()
 
+            
+            # PREVIEW DAN INFO DATA
+            
             preview_col, action_col = st.columns([1.5, 1])
 
             with preview_col:
                 st.markdown("### 📄 Preview Data")
-                st.dataframe(df_upload.head(10), use_container_width=True)
+                st.dataframe(
+                    df_upload.head(10),
+                    use_container_width=True,
+                    hide_index=True
+                )
 
             with action_col:
                 st.markdown("### ⚙️ Informasi Data")
@@ -432,12 +468,15 @@ else:
                     use_container_width=True
                 )
 
+            
+            # PREDIKSI FILE
+            
             if tombol_prediksi_file:
 
                 hasil = prediksi_data(df_upload, model, scaler)
 
-                jumlah_layak = (hasil["Kelas"] == 1).sum()
-                jumlah_tidak_layak = (hasil["Kelas"] == 0).sum()
+                jumlah_layak = (hasil["Kelas_Prediksi"] == 1).sum()
+                jumlah_tidak_layak = (hasil["Kelas_Prediksi"] == 0).sum()
 
                 st.markdown("### 📊 Ringkasan Prediksi")
 
@@ -456,8 +495,66 @@ else:
                     persen_layak = (jumlah_layak / len(hasil)) * 100
                     st.metric("Persentase Layak", f"{persen_layak:.2f}%")
 
+                
+                # EVALUASI BENAR / SALAH
+                
+                if "Hasil_Evaluasi" in hasil.columns:
+
+                    st.divider()
+
+                    jumlah_benar = (hasil["Hasil_Evaluasi"] == "Benar").sum()
+                    jumlah_salah = (hasil["Hasil_Evaluasi"] == "Salah").sum()
+                    akurasi_file = (jumlah_benar / len(hasil)) * 100
+
+                    st.markdown(
+                        """
+                        <h2 style='text-align:center'>
+                        ✅ Evaluasi Prediksi terhadap Kelas Asli
+                        </h2>
+                        """,
+                        unsafe_allow_html=True
+                    )
+
+                    spacer1, c1, c2, c3, spacer2 = st.columns([1, 2, 2, 2, 1])
+
+                    with c1:
+                        st.metric("Prediksi Benar", jumlah_benar)
+
+                    with c2:
+                        st.metric("Prediksi Salah", jumlah_salah)
+
+                    with c3:
+                        st.metric("Akurasi Data Uji", f"{akurasi_file:.2f}%")
+
+                    data_salah = hasil[
+                        hasil["Hasil_Evaluasi"] == "Salah"
+                    ]
+
+                    st.markdown("### ❌ Data yang Salah Diprediksi")
+
+                    if len(data_salah) > 0:
+                        st.dataframe(
+                            data_salah,
+                            use_container_width=True,
+                            hide_index=True
+                        )
+                    else:
+                        st.success("🎉 Tidak ditemukan prediksi yang salah.")
+
+                else:
+                    st.info(
+                        "File tidak memiliki kolom Kelas asli, sehingga evaluasi benar/salah tidak ditampilkan."
+                    )
+
+                # =========================
+                # HASIL PREDIKSI LENGKAP
+                # =========================
                 st.markdown("### 🎯 Hasil Prediksi Data Uji")
-                st.dataframe(hasil, use_container_width=True)
+                st.dataframe(
+                    hasil,
+                    use_container_width=True,
+                    hide_index=True
+                )
 
                 csv = hasil.to_csv(index=False).encode("utf-8")
 
@@ -471,4 +568,3 @@ else:
 
         except Exception as e:
             st.error(f"Terjadi error saat membaca atau memproses file: {e}")
-
